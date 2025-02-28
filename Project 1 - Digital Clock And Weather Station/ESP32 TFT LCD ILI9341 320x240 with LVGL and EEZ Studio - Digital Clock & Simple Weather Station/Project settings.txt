@@ -1,0 +1,48 @@
+ESP32_TFT_LCD_TS_ILI9341_LVGL_DigitalClock_WeatherStation
+
+Main (page) :
+- Background Color : #464653
+
+Panel :
+- Background Color : #262635
+
+Label color : #f0f0f0
+
+Widget/component names :
+label_city
+label_time
+label_date
+label_weather_main
+image_icon_weather
+label_weather_description
+label_temperature
+label_feels_like
+label_temp_max
+label_temp_min
+label_humidity
+label_wind
+label_pressure
+label_visibility
+label_info
+
+Weather Icon Name :
+icon_location_11p
+icon_temp_22p
+icon_max_11p
+icon_min_11p
+icon_humd_22p
+icon_wind_11p
+icon_pressure_11p
+icon_visibility_11p
+icon_01d_72p
+icon_01n_72p
+icon_02d_72p
+icon_02n_72p
+icon_03d_03n_72p
+icon_04d_04n_72p
+icon_09d_09n_72p
+icon_10d_72p
+icon_10n_72p
+icon_11d_11n_72p
+icon_13d_13n_72p
+icon_50d_50n_72p
