@@ -45,14 +45,8 @@ result set and select the entry closest to the actual location you want to displ
 data for. It'll be a URL like https://openweathermap.org/city/2657896. The number
 at the end is what you assign to the constant below.
  */
-String OPEN_WEATHER_MAP_LOCATION_ID = "1565593";
-String DISPLAYED_LOCATION_NAME = "Hanoi";
-//String OPEN_WEATHER_MAP_LOCATION_ID = "3833367";
-//String DISPLAYED_LOCATION_NAME = "Ushuaia";
-//String OPEN_WEATHER_MAP_LOCATION_ID = "2147714";
-//String DISPLAYED_LOCATION_NAME = "Sydney";
-//String OPEN_WEATHER_MAP_LOCATION_ID = "5879400";
-//String DISPLAYED_LOCATION_NAME = "Anchorage";
+String OPEN_WEATHER_MAP_LOCATION_ID = "1581130";
+String DISPLAYED_LOCATION_NAME = "Hanoi, VN";
 
 /*
 Arabic -> ar, Bulgarian -> bg, Catalan -> ca, Czech -> cz, German -> de, Greek -> el,
