@@ -16,8 +16,8 @@
 #include <EEPROM.h>
 #include "Adafruit_ST7796S_kbv.h"
 
-const char* ssid = "MyHouse_2.4G";             // Your WiFi SSID.
-const char* password = "Nh@cuatoi303";           // Your WiFi Password.
+const char* ssid = "MyHome1stFloor_2.4G";             // Your WiFi SSID.
+const char* password = "Nh@cuatoi726";           // Your WiFi Password.
 
 String serverIP = "192.168.1.3:8802";          // The server IP address and Port number set up in the PC Server/plotter Application.
 String deviceId = "air_quality";               // The device ID that the PC server Application will recognize.
@@ -454,7 +454,7 @@ void loop() {
      http_request += "&leftaxis=" + sp25;
      http_request += "&rightaxis=" + String(p10);
      http_request += "&rssi=" + String(rssi);
-     http_request += "&volts=" + String(volts);
+    //  http_request += "&volts=" + String(volts);
     
      Serial.println("Making HTTP request...");
      Serial.println(http_request);
