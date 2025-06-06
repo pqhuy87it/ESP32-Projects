@@ -83,7 +83,7 @@ SDS011 sdsSensor;                                         // Sensor library - cr
 
 String quality;                                           // Define PM2.5 value as LOW, MEDIUM etc (UK Defra scale).
 int colour;                                               // Define PM2.5 value as colour (UK Defra scale)
-short pm25Array[320];                                     // Array to hold sensor values for the histogram.
+short pm25Array[480];                                     // Array to hold sensor values for the histogram.
 
 float p10, p25;                                           // Variabled for PM10 and MP2.5 data from sensor.
 int error;                                                // Confirms valid data from sensor. 0 = error.
@@ -92,12 +92,13 @@ short arrayPointer = 15;                                  // Array element curre
 int yPos;                                                 // Vertical marker for bar chart.
 
 int sleepSeconds;
+int maximumHistogramValue = 479;
 
 void saveData() {
   
   EEPROM.put(0, arrayPointer);
   
-  for (int i= 15; i<=319; i++ ) {
+  for (int i= 15; i<=maximumHistogramValue; i++ ) {
      EEPROM.put(i*2, pm25Array[i]);
   }  
   EEPROM.commit();
@@ -111,10 +112,10 @@ void saveData() {
 
 
 void plotHistogram() {                                    // Function to re-draw the histogram.
-   tft.fillRect(15,200, 319, 90, BLACK);          // Clear plotting area
+   tft.fillRect(15,200, 479, 90, BLACK);                  // Clear plotting area
 
    byte line;
-   for (int i = 15; i <= 319;  i++){
+   for (int i = 15; i <= maximumHistogramValue;  i++){
       getTextData25(pm25Array[i] / 10);                   // Get colour corrsponding to each air quality level. Value is stored
                                                           // multiplied by 10 so divide by 10 here to get true value.                        
       line = constrain(sqrt(pm25Array[i]*40), 0, 105);    // Calculate length of line to plot. sqrt compresses higher values.
@@ -197,7 +198,7 @@ void setup_EEPROM() {
  //-------------------------------------------------------------------------------
 
   EEPROM.get(0, arrayPointer);
-  for (int i=15; i<319; i++) {
+  for (int i=15; i<maximumHistogramValue; i++) {
     EEPROM.get(i*2, pm25Array[i]);
   }
 }
@@ -287,7 +288,7 @@ void setup() {
 
   tft.drawFastHLine(12, tft.height() - 14, tft.width()-1, BLUE);     // Draw histogram horizontal axis
 
-  for (int x = 319; x > 15; x-=12) {
+  for (int x = maximumHistogramValue; x > 15; x-=12) {
      tft.drawFastVLine(x, 303, 3, BLUE);                             // Draw 1-hour ticks on horizontal axis.
   }
 
@@ -407,8 +408,8 @@ void loop() {
 
 // ====== plot histogram (bar graph) ==============
 
-   if (arrayPointer >= 319) {                              // If array has been filled, move all values down one.
-     for (int i = 15; i <= 319; i++) {
+   if (arrayPointer >= maximumHistogramValue) {                              // If array has been filled, move all values down one.
+     for (int i = 15; i <= maximumHistogramValue; i++) {
        pm25Array[i] = pm25Array[i+1];
      }
    }
@@ -417,7 +418,7 @@ void loop() {
 
    plotHistogram();
    
-   if (arrayPointer < 319) arrayPointer++;                 // Increment the pointer to store the next value.
+   if (arrayPointer < maximumHistogramValue) arrayPointer++;                 // Increment the pointer to store the next value.
 
 
 
