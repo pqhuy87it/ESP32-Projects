@@ -369,7 +369,8 @@ static void drawWifiIcon(TFT_eSPI& g, int x, int rssi) {
 // Right side of the header, anchored to the right edge: [ago] [wifi] [battery+pct].
 // Repainted whole by uiDashboardClock every 10s, so everything here must be
 // derivable from its arguments.
-static void drawHeaderRight(TFT_eSPI& g, int rssi, unsigned long ago, int batPct) {
+static void drawHeaderRight(TFT_eSPI& g, int rssi, unsigned long ago, int batPct,
+                            bool showAgo = true) {
     g.setTextColor(C_TEXT, C_HEAD);
     g.setTextSize(1);
 
@@ -388,10 +389,12 @@ static void drawHeaderRight(TFT_eSPI& g, int rssi, unsigned long ago, int batPct
     x -= 21;   // wifi: 15 wide + 6 gap
     drawWifiIcon(g, x, rssi);
 
-    char as[12];
-    snprintf(as, sizeof(as), "%lus", ago);
-    g.setCursor(x - 6 - (int)strlen(as) * 6, 5);
-    g.print(as);
+    if (showAgo) {
+        char as[12];
+        snprintf(as, sizeof(as), "%lus", ago);
+        g.setCursor(x - 6 - (int)strlen(as) * 6, 5);
+        g.print(as);
+    }
 }
 
 // ── Clock mode (full-screen) ─────────────────────────────
@@ -409,7 +412,7 @@ void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
     g.setCursor(SX(4), SY(5));
     g.print("CLAUDE USAGE");
     unsigned long ago = (millis() - lastFetchMs) / 1000;
-    drawHeaderRight(g, rssi, ago, halBatPercent());
+    drawHeaderRight(g, rssi, ago, halBatPercent(), false);   // false = ẩn bộ đếm giây ở clock mode
 
     // Lấy giờ hệ thống (đã sync NTP trong setup). Nếu chưa có giờ hợp lệ
     // (getLocalTime thất bại), báo nhẹ thay vì in giờ rác.
@@ -426,11 +429,15 @@ void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
     // Tên tháng & thứ đầy đủ (định dạng "29 July 2026" / "Wednesday").
     static const char* const MON[] = {"January","February","March","April","May","June",
                                       "July","August","September","October","November","December"};
+    static const char* const MON_ABBR[] = {"Jan","Feb","Mar","Apr","May","Jun",
+                                           "Jul","Aug","Sep","Oct","Nov","Dec"};
     static const char* const WDAY[] = {"Sunday","Monday","Tuesday","Wednesday",
                                        "Thursday","Friday","Saturday"};
-    char dstr[24];
-    snprintf(dstr, sizeof(dstr), "%d %s %d",
-             t.tm_mday, MON[t.tm_mon % 12], t.tm_year + 1900);
+    char dstrFull[24], dstrShort[16];
+    snprintf(dstrFull,  sizeof(dstrFull),  "%d %s %d",
+             t.tm_mday, MON[t.tm_mon % 12],      t.tm_year + 1900);
+    snprintf(dstrShort, sizeof(dstrShort), "%d %s %d",
+             t.tm_mday, MON_ABBR[t.tm_mon % 12], t.tm_year + 1900);
     const char* wstr = WDAY[t.tm_wday % 7];
 
 #ifdef BOARD_TDISPLAY_S3
@@ -448,20 +455,28 @@ void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
     int lineY = 128;
     g.drawFastHLine(SX(8), lineY, SCREEN_W - SX(16), C_HEAD);
 
-    // Hàng dưới: trái ngày, phải thứ; vạch cam dọc ngăn giữa.
+    // Hàng dưới: chia đôi màn. Trái = ngày (căn giữa nửa trái, rút gọn nếu tràn),
+    // phải = thứ (căn giữa nửa phải). Vạch cam dọc ở chính giữa.
     // Xoá nền cả dải trước để khi sang ngày (chuỗi đổi độ dài) không sót pixel cũ.
     int rowY = 146;
     g.fillRect(0, lineY + 2, SCREEN_W, SCREEN_H - (lineY + 2), C_BG);
     g.setTextSize(2);
+
+    const int cxL = SCREEN_W / 4;        // tâm nửa trái  (80)
+    const int cxR = SCREEN_W * 3 / 4;    // tâm nửa phải  (240)
+    const int halfMax = SCREEN_W / 2 - SX(12);   // bề rộng tối đa mỗi nửa (chừa lề + vạch)
+
+    // Chọn ngày đầy đủ nếu vừa, không thì rút gọn ("31 Dec 2026").
+    const char* dstr = (g.textWidth(dstrFull) <= halfMax) ? dstrFull : dstrShort;
+
+    g.setTextDatum(MC_DATUM);
     g.setTextColor(C_TEXT, C_BG);
-    g.setTextDatum(TL_DATUM);
-    g.drawString(dstr, SX(8), rowY);                       // trái: 29 July 2026
+    g.drawString(dstr, cxL, rowY + 7);                     // trái, căn giữa
 
     g.drawFastVLine(SCREEN_W / 2, rowY - 2, 22, C_HEAD);   // vạch ngăn dọc
 
     g.setTextColor(C_HEAD, C_BG);
-    g.setTextDatum(TR_DATUM);
-    g.drawString(wstr, SCREEN_W - SX(8), rowY);            // phải: Wednesday
+    g.drawString(wstr, cxR, rowY + 7);                     // phải, căn giữa
     g.setTextDatum(TL_DATUM);
 #else
     // Board MANGO khác (vd M5StickC Plus 240x135): layout thu nhỏ.
@@ -478,13 +493,18 @@ void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
 
     int rowY = SCREEN_H - SY(14);
     g.setTextSize(TS(1));
+
+    const int cxL = SCREEN_W / 4;
+    const int cxR = SCREEN_W * 3 / 4;
+    const int halfMax = SCREEN_W / 2 - SX(8);
+    const char* dstr = (g.textWidth(dstrFull) <= halfMax) ? dstrFull : dstrShort;
+
+    g.setTextDatum(MC_DATUM);
     g.setTextColor(C_TEXT, C_BG);
-    g.setTextDatum(TL_DATUM);
-    g.drawString(dstr, SX(6), rowY);
+    g.drawString(dstr, cxL, rowY + SY(4));
     g.drawFastVLine(SCREEN_W / 2, rowY - 1, SY(12), C_HEAD);
     g.setTextColor(C_HEAD, C_BG);
-    g.setTextDatum(TR_DATUM);
-    g.drawString(wstr, SCREEN_W - SX(6), rowY);
+    g.drawString(wstr, cxR, rowY + SY(4));
     g.setTextDatum(TL_DATUM);
 #endif
 
