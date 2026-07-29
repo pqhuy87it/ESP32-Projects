@@ -23,4 +23,9 @@ void uiSetModelStatus(const ModelStatus& s);
 void uiToggleRotation();
 // Close (true) or open (false) the healthy mascots' eyes on the dashboard.
 void uiBlinkTick(bool closed);
+// Full-screen clock mode: giữ nguyên header, giờ:phút:giây to ở giữa,
+// hàng dưới trái = ngày/tháng/năm, phải = thứ. Vẽ từ giờ hệ thống (NTP).
+// full=true: xóa & vẽ lại toàn bộ (khi mới vào mode / sau khi lật màn);
+// full=false: chỉ vẽ đè (tick mỗi giây) — text màu-nền tự xóa nền cũ, không nháy.
+void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full = true);
 #endif // MANGO_UI

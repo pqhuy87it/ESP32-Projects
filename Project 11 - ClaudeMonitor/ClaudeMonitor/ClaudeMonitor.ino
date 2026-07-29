@@ -26,6 +26,12 @@
 #include "status.h"
 #endif
 
+// ── PIN cố định (bỏ qua màn hình nhập lúc boot) ──────────
+// PHẢI trùng đúng PIN bạn nhập khi setup lần đầu qua web (/provision).
+// Nếu đã lỡ setup với PIN khác: giữ A+B lúc boot 2s để factory reset,
+// rồi setup lại với PIN "0000" (hoặc đổi giá trị dưới đây cho khớp).
+#define FIXED_PIN "0000"
+
 static Preferences prefs;
 static char        token[256];
 static UsageData   usage;
@@ -35,23 +41,7 @@ static ModelStatus modelStatus = {true, true, true, true, false};
 static unsigned long lastFetch = 0;
 static int         pollMs     = DEFAULT_POLL_SEC * 1000;
 static uint8_t     brightness = DEFAULT_BRIGHTNESS;
-
-// ── PIN Entry (blocks until 4 digits confirmed) ────────
-static void enterPin(char* pinOut, int maxLen) {
-    int digits[4] = {0, 0, 0, 0};
-    int pos = 0;
-
-    while (pos < 4) {
-        uiPinScreen(pos, digits);
-        while (true) {
-            halUpdate();
-            if (halBtnAWasPressed()) { digits[pos] = (digits[pos] + 1) % 10; break; }
-            if (halBtnBWasPressed()) { pos++; break; }
-            delay(20);
-        }
-    }
-    snprintf(pinOut, maxLen, "%d%d%d%d", digits[0], digits[1], digits[2], digits[3]);
-}
+static int         lastSyncYday = -1;   // tm_yday của lần NTP sync gần nhất (để sync lại khi qua 0h)
 
 // ── WiFi ───────────────────────────────────────────────
 static bool connectWiFi(const char* ssid, const char* pass) {
@@ -69,9 +59,11 @@ static bool connectWiFi(const char* ssid, const char* pass) {
 
 // ── Sync NTP for reset countdown display ───────────────
 static void syncTime() {
-    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    configTime(7 * 3600, 0, "pool.ntp.org", "time.nist.gov");  // UTC+7 (giờ VN)
     struct tm t;
-    getLocalTime(&t, 5000);
+    if (getLocalTime(&t, 5000)) {
+        lastSyncYday = t.tm_yday;   // ghi lại ngày trong năm đã sync
+    }
 }
 
 // ── Fetch + draw ───────────────────────────────────────
@@ -170,30 +162,16 @@ void setup() {
 
     halSetBrightness(brightness);
 
-    uiBootProgress(60, "Enter PIN...");
-    delay(300);
+    uiBootProgress(60, "Unlocking...");
+    delay(200);
 
-    // PIN + decrypt loop
-    int attempts = 0;
-    while (attempts < MAX_PIN_ATTEMPTS) {
-        char pin[9];
-        enterPin(pin, sizeof(pin));
-
-        if (decryptToken(blob, pin, token, sizeof(token))) break;
-
-        attempts++;
-        if (attempts >= MAX_PIN_ATTEMPTS) {
-            uiError("MAX ATTEMPTS", "Wiping credentials...");
-            prefs.begin(NVS_NAMESPACE, false);
-            prefs.clear();
-            prefs.end();
-            delay(3000);
-            ESP.restart();
-        }
-
-        int lockSec = LOCKOUT_BASE_SEC * (1 << (attempts - 1));
-        if (lockSec > 3600) lockSec = 3600;
-        uiLockout(attempts, MAX_PIN_ATTEMPTS, lockSec);
+    // Giải mã token bằng PIN cố định — bỏ qua màn hình nhập.
+    if (!decryptToken(blob, FIXED_PIN, token, sizeof(token))) {
+        // Sai PIN cố định so với lúc provisioning, hoặc blob hỏng.
+        // Không tự wipe NVS để bạn còn cơ hội sửa FIXED_PIN cho khớp.
+        uiError("UNLOCK FAILED", "Check FIXED_PIN / re-setup");
+        delay(5000);
+        ESP.restart();
     }
 
     uiBootProgress(80, "Connecting WiFi...");
@@ -216,10 +194,11 @@ void loop() {
     halUpdate();
 
 #ifdef MANGO_UI
-    // A flips the screen 180°, B cycles brightness, A+B together = force refresh
-    // (the Clarity Button-B action). A single press only commits after a short
-    // window so the other button can still join to form the combo.
+    // A flips the screen 180°, B toggles clock mode, A+B together = force refresh.
+    // A single press only commits after a short window so the other button can
+    // still join to form the combo.
     static unsigned long aPressAt = 0, bPressAt = 0;
+    static bool clockMode = false;
     const unsigned long comboWindowMs = 350;
     if (halBtnAWasPressed()) aPressAt = millis();
     if (halBtnBWasPressed()) bPressAt = millis();
@@ -228,14 +207,17 @@ void loop() {
         (bPressAt && halBtnAIsPressed())) {
         aPressAt = bPressAt = 0;
         refresh();
+        if (clockMode) uiClockScreen(lastFetch, WiFi.RSSI());
     } else if (aPressAt && millis() - aPressAt > comboWindowMs) {
         aPressAt = 0;
         uiToggleRotation();
-        uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent());
+        if (clockMode) uiClockScreen(lastFetch, WiFi.RSSI());
+        else           uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent());
     } else if (bPressAt && millis() - bPressAt > comboWindowMs) {
         bPressAt = 0;
-        brightness = (brightness + 1) % 4;
-        halSetBrightness(brightness);
+        clockMode = !clockMode;   // chuyển đổi dashboard <-> đồng hồ
+        if (clockMode) uiClockScreen(lastFetch, WiFi.RSSI());
+        else           uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent());
     }
 #else
     if (halBtnAWasPressed()) {
@@ -252,25 +234,55 @@ void loop() {
     }
 #endif
 
-    if (millis() - lastFetch >= (unsigned long)pollMs) {
+    // Fetch định kỳ — nhưng TẠM DỪNG khi đang ở clock mode để giờ chạy mượt
+    // (fetchUsage/fetchModelStatus là HTTPS blocking, sẽ làm đứng giây vài giây).
+    // lastFetch không đổi khi hoãn, nên vừa thoát clock mode là fetch ngay.
+    bool inClockMode = false;
+#ifdef MANGO_UI
+    inClockMode = clockMode;
+#endif
+    if (!inClockMode && millis() - lastFetch >= (unsigned long)pollMs) {
         refresh();
     }
 
 #ifdef MANGO_UI
+    // NTP: chỉ sync 1 lần lúc boot, sau đó sync lại khi sang ngày mới (qua 0h).
+    // Không sync khi đang ở clock mode (tránh block giây); để lần thoát mode xử lý.
+    if (!clockMode && WiFi.status() == WL_CONNECTED) {
+        struct tm nt;
+        if (getLocalTime(&nt, 0) && nt.tm_yday != lastSyncYday) {
+            syncTime();
+        }
+    }
+#endif
+
+#ifdef MANGO_UI
     // Healthy mascots blink every 2s (eyes shut for 150ms) to show liveness.
+    // Chỉ chạy ở dashboard — clock mode không có mascot.
     static unsigned long lastBlink = 0;
     static bool eyesClosed = false;
-    if (eyesClosed && millis() - lastBlink > 150) {
-        uiBlinkTick(false);
-        eyesClosed = false;
-    } else if (!eyesClosed && usage.ok && millis() - lastBlink > 2000) {
-        uiBlinkTick(true);
-        eyesClosed = true;
-        lastBlink = millis();
+    if (!clockMode) {
+        if (eyesClosed && millis() - lastBlink > 150) {
+            uiBlinkTick(false);
+            eyesClosed = false;
+        } else if (!eyesClosed && usage.ok && millis() - lastBlink > 2000) {
+            uiBlinkTick(true);
+            eyesClosed = true;
+            lastBlink = millis();
+        }
     }
 #endif
 
     static unsigned long lastRedraw = 0;
+#ifdef MANGO_UI
+    if (clockMode) {
+        // Clock mode: cập nhật mỗi giây để giây chạy mượt. full=false = vẽ đè, không nháy.
+        if (millis() - lastRedraw > 1000) {
+            uiClockScreen(lastFetch, WiFi.RSSI(), false);
+            lastRedraw = millis();
+        }
+    } else
+#endif
     if (millis() - lastRedraw > 10000) {
         // Only time passed (not data) — update the clock/countdowns in place; redrawing
         // the whole dashboard here is what made the slow CrowPanel panel flicker.

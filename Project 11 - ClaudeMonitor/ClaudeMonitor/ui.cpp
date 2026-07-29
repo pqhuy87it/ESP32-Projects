@@ -393,6 +393,103 @@ static void drawHeaderRight(TFT_eSPI& g, int rssi, unsigned long ago, int batPct
     g.setCursor(x - 6 - (int)strlen(as) * 6, 5);
     g.print(as);
 }
+
+// ── Clock mode (full-screen) ─────────────────────────────
+// Header giống dashboard; giờ:phút:giây cỡ lớn giữa màn; hàng dưới chia đôi:
+// trái = DD/MM/YYYY, phải = thứ (Mon/Tue...). Vẽ trực tiếp lên panel; các board
+// dùng sprite (CrowPanel) không bật MANGO clock nên không cần nhánh sprite ở đây.
+void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
+    auto& g = lcd;
+    if (full) halClear(C_BG);   // tick mỗi giây (full=false) không clear → không nháy
+
+    // Header (dải cam) — dùng lại đúng layout của uiDashboard.
+    g.fillRect(0, 0, SCREEN_W, SY(18), C_HEAD);
+    g.setTextColor(C_TEXT, C_HEAD);
+    g.setTextSize(TS(1));
+    g.setCursor(SX(4), SY(5));
+    g.print("CLAUDE USAGE");
+    unsigned long ago = (millis() - lastFetchMs) / 1000;
+    drawHeaderRight(g, rssi, ago, halBatPercent());
+
+    // Lấy giờ hệ thống (đã sync NTP trong setup). Nếu chưa có giờ hợp lệ
+    // (getLocalTime thất bại), báo nhẹ thay vì in giờ rác.
+    struct tm t;
+    if (!getLocalTime(&t, 100)) {
+        g.setTextColor(C_DIM, C_BG);
+        g.setTextSize(TS(2));
+        g.setCursor(SX(10), SY(70));
+        g.print("SYNCING TIME...");
+        UI_PUSH_DASH();
+        return;
+    }
+
+    // Tên tháng & thứ đầy đủ (định dạng "29 July 2026" / "Wednesday").
+    static const char* const MON[] = {"January","February","March","April","May","June",
+                                      "July","August","September","October","November","December"};
+    static const char* const WDAY[] = {"Sunday","Monday","Tuesday","Wednesday",
+                                       "Thursday","Friday","Saturday"};
+    char dstr[24];
+    snprintf(dstr, sizeof(dstr), "%d %s %d",
+             t.tm_mday, MON[t.tm_mon % 12], t.tm_year + 1900);
+    const char* wstr = WDAY[t.tm_wday % 7];
+
+#ifdef BOARD_TDISPLAY_S3
+    // Panel 320x170, header cao 18 → vùng còn lại 18..170.
+    // Giờ:phút:giây cỡ 6 (mỗi ký tự 36x48), căn giữa.
+    char hms[9];
+    snprintf(hms, sizeof(hms), "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
+    g.setTextDatum(MC_DATUM);
+    g.setTextColor(C_CYAN, C_BG);
+    g.setTextSize(6);
+    g.drawString(hms, SCREEN_W / 2, 82);   // tâm khối giờ, chừa chỗ cho line + hàng dưới
+    g.setTextDatum(TL_DATUM);
+
+    // Đường kẻ cam ngăn giữa giờ và hàng ngày/thứ.
+    int lineY = 128;
+    g.drawFastHLine(SX(8), lineY, SCREEN_W - SX(16), C_HEAD);
+
+    // Hàng dưới: trái ngày, phải thứ; vạch cam dọc ngăn giữa.
+    // Xoá nền cả dải trước để khi sang ngày (chuỗi đổi độ dài) không sót pixel cũ.
+    int rowY = 146;
+    g.fillRect(0, lineY + 2, SCREEN_W, SCREEN_H - (lineY + 2), C_BG);
+    g.setTextSize(2);
+    g.setTextColor(C_TEXT, C_BG);
+    g.setTextDatum(TL_DATUM);
+    g.drawString(dstr, SX(8), rowY);                       // trái: 29 July 2026
+
+    g.drawFastVLine(SCREEN_W / 2, rowY - 2, 22, C_HEAD);   // vạch ngăn dọc
+
+    g.setTextColor(C_HEAD, C_BG);
+    g.setTextDatum(TR_DATUM);
+    g.drawString(wstr, SCREEN_W - SX(8), rowY);            // phải: Wednesday
+    g.setTextDatum(TL_DATUM);
+#else
+    // Board MANGO khác (vd M5StickC Plus 240x135): layout thu nhỏ.
+    char hms[9];
+    snprintf(hms, sizeof(hms), "%02d:%02d:%02d", t.tm_hour, t.tm_min, t.tm_sec);
+    g.setTextDatum(MC_DATUM);
+    g.setTextColor(C_CYAN, C_BG);
+    g.setTextSize(TS(3));
+    g.drawString(hms, SCREEN_W / 2, SY(60));
+    g.setTextDatum(TL_DATUM);
+
+    int lineY = SY(84);
+    g.drawFastHLine(SX(6), lineY, SCREEN_W - SX(12), C_HEAD);
+
+    int rowY = SCREEN_H - SY(14);
+    g.setTextSize(TS(1));
+    g.setTextColor(C_TEXT, C_BG);
+    g.setTextDatum(TL_DATUM);
+    g.drawString(dstr, SX(6), rowY);
+    g.drawFastVLine(SCREEN_W / 2, rowY - 1, SY(12), C_HEAD);
+    g.setTextColor(C_HEAD, C_BG);
+    g.setTextDatum(TR_DATUM);
+    g.drawString(wstr, SCREEN_W - SX(6), rowY);
+    g.setTextDatum(TL_DATUM);
+#endif
+
+    UI_PUSH_DASH();
+}
 #endif // MANGO_UI
 
 void uiInit() {
