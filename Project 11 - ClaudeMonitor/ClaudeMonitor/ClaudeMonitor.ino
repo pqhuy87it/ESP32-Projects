@@ -24,6 +24,7 @@
 #include "ui.h"
 #ifdef MANGO_UI
 #include "status.h"
+#include "weather.h"
 #endif
 
 // ── PIN cố định (bỏ qua màn hình nhập lúc boot) ──────────
@@ -37,6 +38,8 @@ static char        token[256];
 static UsageData   usage;
 #ifdef MANGO_UI
 static ModelStatus modelStatus = {true, true, true, true, false};
+static WeatherData weather = {};   // zero-init toàn bộ field (ok=false)
+static unsigned long lastWeatherFetch = 0;
 #endif
 static unsigned long lastFetch = 0;
 static int         pollMs     = DEFAULT_POLL_SEC * 1000;
@@ -83,7 +86,22 @@ static void refresh() {
     uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent());
 }
 
-// ── Setup ──────────────────────────────────────────────
+#ifdef MANGO_UI
+// Ba chế độ màn hình, xoay vòng bằng nút B: Dashboard → Clock → Weather → …
+enum ViewMode { VIEW_DASH = 0, VIEW_CLOCK, VIEW_WEATHER, VIEW_COUNT };
+static ViewMode viewMode = VIEW_DASH;
+
+// Vẽ lại màn hình ứng với chế độ hiện tại.
+static void drawCurrentView() {
+    switch (viewMode) {
+        case VIEW_CLOCK:   uiClockScreen(lastFetch, WiFi.RSSI()); break;
+        case VIEW_WEATHER: uiWeatherScreen(weather, WiFi.RSSI()); break;
+        default:           uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent()); break;
+    }
+}
+#endif
+
+
 void setup() {
     halInit();
     uiInit();
@@ -194,11 +212,10 @@ void loop() {
     halUpdate();
 
 #ifdef MANGO_UI
-    // A flips the screen 180°, B toggles clock mode, A+B together = force refresh.
-    // A single press only commits after a short window so the other button can
-    // still join to form the combo.
+    // A flips the screen 180°, B xoay vòng chế độ (Dashboard→Clock→Weather),
+    // A+B together = force refresh. Một lần nhấn chỉ chốt sau một cửa sổ ngắn
+    // để nút kia còn kịp ghép thành combo.
     static unsigned long aPressAt = 0, bPressAt = 0;
-    static bool clockMode = false;
     const unsigned long comboWindowMs = 350;
     if (halBtnAWasPressed()) aPressAt = millis();
     if (halBtnBWasPressed()) bPressAt = millis();
@@ -207,17 +224,20 @@ void loop() {
         (bPressAt && halBtnAIsPressed())) {
         aPressAt = bPressAt = 0;
         refresh();
-        if (clockMode) uiClockScreen(lastFetch, WiFi.RSSI());
+        drawCurrentView();
     } else if (aPressAt && millis() - aPressAt > comboWindowMs) {
         aPressAt = 0;
         uiToggleRotation();
-        if (clockMode) uiClockScreen(lastFetch, WiFi.RSSI());
-        else           uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent());
+        drawCurrentView();
     } else if (bPressAt && millis() - bPressAt > comboWindowMs) {
         bPressAt = 0;
-        clockMode = !clockMode;   // chuyển đổi dashboard <-> đồng hồ
-        if (clockMode) uiClockScreen(lastFetch, WiFi.RSSI());
-        else           uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent());
+        viewMode = (ViewMode)((viewMode + 1) % VIEW_COUNT);   // xoay vòng chế độ
+        // Vào weather mode mà chưa có dữ liệu → fetch ngay để có gì đó hiển thị.
+        if (viewMode == VIEW_WEATHER && !weather.ok) {
+            fetchWeather(weather);
+            lastWeatherFetch = millis();
+        }
+        drawCurrentView();
     }
 #else
     if (halBtnAWasPressed()) {
@@ -234,21 +254,29 @@ void loop() {
     }
 #endif
 
-    // Fetch định kỳ — nhưng TẠM DỪNG khi đang ở clock mode để giờ chạy mượt
-    // (fetchUsage/fetchModelStatus là HTTPS blocking, sẽ làm đứng giây vài giây).
-    // lastFetch không đổi khi hoãn, nên vừa thoát clock mode là fetch ngay.
-    bool inClockMode = false;
+    // Fetch usage định kỳ — chỉ khi đang ở Dashboard. Ở Clock/Weather thì hoãn
+    // (fetchUsage/fetchModelStatus là HTTPS blocking, làm đứng UI vài giây).
+    // lastFetch không đổi khi hoãn, nên vừa quay lại Dashboard là fetch ngay.
+    bool atDashboard = true;
 #ifdef MANGO_UI
-    inClockMode = clockMode;
+    atDashboard = (viewMode == VIEW_DASH);
 #endif
-    if (!inClockMode && millis() - lastFetch >= (unsigned long)pollMs) {
+    if (atDashboard && millis() - lastFetch >= (unsigned long)pollMs) {
         refresh();
     }
 
 #ifdef MANGO_UI
+    // Fetch thời tiết định kỳ khi đang ở Weather mode (mặc định 15'/lần).
+    if (viewMode == VIEW_WEATHER &&
+        millis() - lastWeatherFetch >= (unsigned long)WEATHER_REFRESH_SEC * 1000) {
+        fetchWeather(weather);
+        lastWeatherFetch = millis();
+        uiWeatherScreen(weather, WiFi.RSSI());
+    }
+
     // NTP: chỉ sync 1 lần lúc boot, sau đó sync lại khi sang ngày mới (qua 0h).
-    // Không sync khi đang ở clock mode (tránh block giây); để lần thoát mode xử lý.
-    if (!clockMode && WiFi.status() == WL_CONNECTED) {
+    // Chỉ khi ở Dashboard để không block Clock/Weather.
+    if (viewMode == VIEW_DASH && WiFi.status() == WL_CONNECTED) {
         struct tm nt;
         if (getLocalTime(&nt, 0) && nt.tm_yday != lastSyncYday) {
             syncTime();
@@ -257,11 +285,10 @@ void loop() {
 #endif
 
 #ifdef MANGO_UI
-    // Healthy mascots blink every 2s (eyes shut for 150ms) to show liveness.
-    // Chỉ chạy ở dashboard — clock mode không có mascot.
+    // Healthy mascots blink every 2s (eyes shut for 150ms) — chỉ ở Dashboard.
     static unsigned long lastBlink = 0;
     static bool eyesClosed = false;
-    if (!clockMode) {
+    if (viewMode == VIEW_DASH) {
         if (eyesClosed && millis() - lastBlink > 150) {
             uiBlinkTick(false);
             eyesClosed = false;
@@ -275,12 +302,14 @@ void loop() {
 
     static unsigned long lastRedraw = 0;
 #ifdef MANGO_UI
-    if (clockMode) {
-        // Clock mode: cập nhật mỗi giây để giây chạy mượt. full=false = vẽ đè, không nháy.
+    if (viewMode == VIEW_CLOCK) {
+        // Clock: cập nhật mỗi giây để giây chạy mượt. full=false = vẽ đè, không nháy.
         if (millis() - lastRedraw > 1000) {
             uiClockScreen(lastFetch, WiFi.RSSI(), false);
             lastRedraw = millis();
         }
+    } else if (viewMode == VIEW_WEATHER) {
+        // Weather: không cần vẽ lại thường xuyên; fetch định kỳ ở trên đã lo cập nhật.
     } else
 #endif
     if (millis() - lastRedraw > 10000) {

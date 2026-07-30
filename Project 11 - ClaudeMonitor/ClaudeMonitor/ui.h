@@ -3,6 +3,7 @@
 #include "api.h"
 #ifdef MANGO_UI
 #include "status.h"
+#include "weather.h"    // WeatherData — cần cho prototype uiWeatherScreen bên dưới
 #endif
 
 void uiInit();
@@ -28,4 +29,6 @@ void uiBlinkTick(bool closed);
 // full=true: xóa & vẽ lại toàn bộ (khi mới vào mode / sau khi lật màn);
 // full=false: chỉ vẽ đè (tick mỗi giây) — text màu-nền tự xóa nền cũ, không nháy.
 void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full = true);
+// Màn hình thời tiết: icon lớn + nhiệt độ + mô tả + độ ẩm.
+void uiWeatherScreen(const WeatherData& wx, int rssi);
 #endif // MANGO_UI

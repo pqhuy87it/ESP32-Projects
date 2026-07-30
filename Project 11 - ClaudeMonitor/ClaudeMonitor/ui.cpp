@@ -1,7 +1,15 @@
 #include "ui.h"
 #include "config.h"
 #include "hal.h"
+#include <Arduino.h>
 #include <time.h>
+#include <math.h>
+#include <string.h>
+#ifdef MANGO_UI
+#include "weather.h"
+#include "weather_icons.h"      // bộ icon lớn 50x50 (prefix ICON) — bmp2icons.py big/ ICON
+#include "weather_icons_sm.h"   // bộ icon nhỏ 28x28 (prefix ICONSM) — bmp2icons.py small/ ICONSM
+#endif
 
 // Shared helper — no display calls, safe before any #ifdef
 static void fmtCountdown(uint32_t epoch, char* out, size_t len) {
@@ -508,6 +516,169 @@ void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
     g.setTextDatum(TL_DATUM);
 #endif
 
+    UI_PUSH_DASH();
+}
+
+// ── Weather mode (full-screen) ───────────────────────────
+// Trái: icon lớn + (thành phố / nhiệt độ / mô tả). Phải: các cột forecast
+// (giờ trên; nhiệt độ + icon nhỏ dưới). Layout mô phỏng đồng hồ thời tiết.
+void uiWeatherScreen(const WeatherData& wx, int rssi) {
+    auto& g = lcd;
+    halClear(C_BG);
+    // Icon là RGB565 big-endian (do bmp2icons.py sinh). TFT_eSPI mặc định đọc
+    // little-endian → cần bật swap bytes, nếu không màu sẽ loạn/nhiễu hạt.
+    g.setSwapBytes(true);
+
+    // Header cam.
+    g.fillRect(0, 0, SCREEN_W, SY(18), C_HEAD);
+    g.setTextColor(C_TEXT, C_HEAD);
+    g.setTextSize(TS(1));
+    g.setCursor(SX(4), SY(5));
+    g.print("WEATHER");
+    drawHeaderRight(g, rssi, 0, halBatPercent(), false);
+
+    if (!wx.ok) {
+        g.setTextColor(C_DIM, C_BG);
+        g.setTextSize(TS(2));
+        g.setTextDatum(MC_DATUM);
+        g.drawString(wx.error[0] ? wx.error : "NO DATA", SCREEN_W / 2, SCREEN_H / 2);
+        g.setTextDatum(TL_DATUM);
+        UI_PUSH_DASH();
+        return;
+    }
+
+#ifdef BOARD_TDISPLAY_S3
+    const int headerH = 18;
+    const int midY    = 94;                     // vạch cam ngang chia trên/dưới
+
+    // ══ PHẦN TRÊN: thời tiết hiện tại — 3 khu đều nhau ══
+    const int zoneW = SCREEN_W / 3;             // ~106px mỗi khu
+    const int z1cx  = zoneW / 2;                // tâm khu 1 (~53)
+    const int z2cx  = zoneW + zoneW / 2;        // tâm khu 2 (~160)
+    const int z3cx  = 2 * zoneW + zoneW / 2;    // tâm khu 3 (~266)
+    const int topMid = (headerH + midY) / 2;    // tâm dọc vùng trên (~56)
+
+    // Khu 1: icon lớn 50x50, căn giữa khu.
+    const uint16_t* icon = weatherIconByName(wx.iconName);
+    int iconX = z1cx - ICON_W / 2;
+    int iconY = topMid - ICON_H / 2;
+    if (icon) {
+        g.pushImage(iconX, iconY, ICON_W, ICON_H, icon);
+    } else {
+        g.drawRect(iconX, iconY, ICON_W, ICON_H, C_HEAD);
+        g.setTextColor(C_HEAD, C_BG); g.setTextDatum(MC_DATUM); g.setTextSize(3);
+        g.drawString("?", z1cx, topMid);
+        g.setTextDatum(TL_DATUM);
+    }
+
+    // Khu 2: nhiệt độ lớn + dấu độ + đơn vị, căn giữa khu.
+    const char* unit = (strcmp(OWM_UNITS, "imperial") == 0) ? "F" : "C";
+    char ts[8];
+    snprintf(ts, sizeof(ts), "%d", (int)lroundf(wx.temp));
+    // Đo bề rộng cụm số (size 5) + dấu độ (vòng tròn) + đơn vị (size 2) để căn giữa.
+    g.setTextSize(5);
+    int numW = g.textWidth(ts);
+    int degR = 4;                               // bán kính dấu độ cho cụm lớn
+    g.setTextSize(2);
+    int unitW = g.textWidth(unit);
+    int gap = 4;
+    int clusterW = numW + gap + degR * 2 + unitW;
+    int startX = z2cx - clusterW / 2;
+    // Số.
+    g.setTextColor(C_TEXT, C_BG);
+    g.setTextSize(5);
+    g.setTextDatum(TL_DATUM);
+    int numY = topMid - 20;                     // size5 cao ~40 → top = tâm-20
+    g.drawString(ts, startX, numY);
+    // Dấu độ (vòng tròn) ở góc trên phải của số.
+    int degCx = startX + numW + gap + degR;
+    g.drawCircle(degCx, numY + 6, degR, C_TEXT);
+    // Đơn vị C/F, canh chân số.
+    g.setTextSize(2);
+    g.drawString(unit, degCx + degR + 2, numY + 22);
+
+    // Khu 3: info 3 dòng (mô tả / mưa / độ ẩm), cả khối căn giữa khu theo chiều dọc.
+    char descLine[18];
+    strlcpy(descLine, wx.desc, sizeof(descLine));
+    if (descLine[0] >= 'a' && descLine[0] <= 'z') descLine[0] -= 32;
+    char l2[18], l3[18];
+    snprintf(l2, sizeof(l2), "Rain: %d%%", wx.pop);
+    snprintf(l3, sizeof(l3), "Humid: %d%%", wx.humidity);
+    g.setTextSize(1);
+    g.setTextDatum(MC_DATUM);
+    int lh = 16;                                // khoảng cách dòng
+    int block0 = topMid - lh;                   // 3 dòng: -lh, 0, +lh quanh tâm
+    g.setTextColor(C_TEXT, C_BG);
+    g.drawString(descLine, z3cx, block0);
+    g.setTextColor(C_DIM, C_BG);
+    g.drawString(l2, z3cx, block0 + lh);
+    g.drawString(l3, z3cx, block0 + 2 * lh);
+    g.setTextDatum(TL_DATUM);
+
+    // Vạch cam ngang chia trên/dưới.
+    g.drawFastHLine(8, midY, SCREEN_W - 16, C_HEAD);
+
+    // ══ PHẦN DƯỚI: 6 cột forecast (giờ / icon / nhiệt độ) ══
+    int colW = SCREEN_W / FORECAST_SLOTS;
+    for (int i = 0; i < FORECAST_SLOTS; i++) {
+        const ForecastSlot& fs = wx.slots[i];
+        int cx = i * colW + colW / 2;
+
+        // Vạch cam dọc phân cách giữa các cột (trước mỗi cột, trừ cột đầu).
+        if (i > 0)
+            g.drawFastVLine(i * colW, midY + 6, SCREEN_H - midY - 12, C_HEAD);
+
+        if (!fs.valid) continue;
+
+        // Giờ (trên).
+        char hh[6]; snprintf(hh, sizeof(hh), "%02d:00", fs.hour);
+        g.setTextColor(C_HEAD, C_BG);
+        g.setTextSize(1);
+        g.setTextDatum(MC_DATUM);
+        g.drawString(hh, cx, midY + 12);
+
+        // Icon nhỏ 28x28 (giữa).
+        const uint16_t* sic = weatherIconSmByName(fs.iconName);
+        int sx = cx - ICONSM_W / 2;
+        int sy = midY + 22;
+        if (sic) {
+            g.pushImage(sx, sy, ICONSM_W, ICONSM_H, sic);
+        } else {
+            g.drawRect(sx, sy, ICONSM_W, ICONSM_H, C_HEAD_DK);
+        }
+
+        // Nhiệt độ (dưới) — số + dấu độ vẽ bằng vòng tròn nhỏ (đẹp hơn chữ 'o').
+        char ft[5]; snprintf(ft, sizeof(ft), "%d", fs.temp);
+        g.setTextColor(C_TEXT, C_BG);
+        g.setTextSize(1);
+        int ftw = g.textWidth(ft);
+        int fDegR = 2;                               // bán kính dấu độ (cột nhỏ)
+        int totalW = ftw + fDegR * 2 + 2;            // bề rộng cả cụm "22°"
+        int startX = cx - totalW / 2;                // căn giữa cụm quanh tâm cột
+        int ty = midY + 60;
+        g.setTextDatum(TL_DATUM);
+        g.drawString(ft, startX, ty - 3);            // TL: bù nửa chiều cao chữ (~7px)
+        // Vòng tròn dấu độ, đặt hơi cao ngang đỉnh số.
+        g.drawCircle(startX + ftw + fDegR + 1, ty - 3, fDegR, C_TEXT);
+        g.setTextDatum(MC_DATUM);
+    }
+    g.setTextDatum(TL_DATUM);
+#else
+    // Board MANGO nhỏ: chỉ hiện tại (không đủ chỗ cho cột forecast).
+    const uint16_t* icon = weatherIconByName(wx.iconName);
+    if (icon) g.pushImage(SX(6), SY(24), ICON_W, ICON_H, icon);
+    char ts[10];
+    snprintf(ts, sizeof(ts), "%d%c", (int)lroundf(wx.temp), 'o');
+    g.setTextColor(C_CYAN, C_BG);
+    g.setTextSize(TS(3));
+    g.setTextDatum(TL_DATUM);
+    g.drawString(ts, SX(6) + ICON_W + SX(6), SY(30));
+    g.setTextColor(C_TEXT, C_BG);
+    g.setTextSize(TS(1));
+    g.drawString(wx.desc, SX(6), SCREEN_H - SY(16));
+#endif
+
+    g.setSwapBytes(false);   // trả lại mặc định cho các màn khác
     UI_PUSH_DASH();
 }
 #endif // MANGO_UI

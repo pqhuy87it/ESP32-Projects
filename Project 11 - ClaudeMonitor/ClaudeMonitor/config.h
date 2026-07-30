@@ -62,6 +62,18 @@
 // status.anthropic.com redirects here — query the canonical host directly
 #define STATUS_ENDPOINT         "https://status.claude.com/api/v2/incidents/unresolved.json"
 
+// ── Weather (OpenWeatherMap) ─────────────────────────────
+// Lấy API key miễn phí tại https://openweathermap.org/api (5 day / 3 hour forecast).
+// LAT/LON: toạ độ nơi bạn muốn xem (mặc định Hà Nội). units=metric → °C.
+#define OWM_API_KEY             "28c29099075601342f371617f43b2878"
+#define OWM_LAT                 "21.0285"
+#define OWM_LON                 "105.8542"
+#define OWM_UNITS               "metric"          // metric=°C, imperial=°F
+#define OWM_TZ_OFFSET_SEC       (7 * 3600)        // múi giờ hiển thị cho giờ forecast (VN=+7)
+#define WEATHER_REFRESH_SEC     900               // fetch lại mỗi 15 phút
+// Forecast 5 ngày / bước 3 giờ — free tier. cnt=5: lấy hiện tại + 4 mốc kế.
+#define WEATHER_ENDPOINT        "https://api.openweathermap.org/data/2.5/forecast"
+
 // ── NVS ──────────────────────────────────────────────────
 #define NVS_NAMESPACE           "claude"
 
