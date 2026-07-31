@@ -16,6 +16,7 @@
 #include "hal.h"
 #include <WiFi.h>
 #include <Preferences.h>
+#include <time.h>
 #include "esp_mac.h"      // esp_efuse_mac_get_default (core 3.x)
 #include "config.h"
 #include "crypto.h"
@@ -25,6 +26,7 @@
 #ifdef MANGO_UI
 #include "status.h"
 #include "weather.h"
+#include "moon.h"
 #endif
 
 // ── PIN cố định (bỏ qua màn hình nhập lúc boot) ──────────
@@ -39,6 +41,8 @@ static UsageData   usage;
 #ifdef MANGO_UI
 static ModelStatus modelStatus = {true, true, true, true, false};
 static WeatherData weather = {};   // zero-init toàn bộ field (ok=false)
+static MoonData    moon = {};
+static bool        weatherShowMoon = false;   // false=forecast, true=moon (nút A lật khi ở Weather)
 static unsigned long lastWeatherFetch = 0;
 #endif
 static unsigned long lastFetch = 0;
@@ -95,7 +99,14 @@ static ViewMode viewMode = VIEW_DASH;
 static void drawCurrentView() {
     switch (viewMode) {
         case VIEW_CLOCK:   uiClockScreen(lastFetch, WiFi.RSSI()); break;
-        case VIEW_WEATHER: uiWeatherScreen(weather, WiFi.RSSI()); break;
+        case VIEW_WEATHER:
+            if (weatherShowMoon) {
+                computeMoon((long)time(nullptr), OWM_TZ_OFFSET_SEC, moon);
+                uiMoonScreen(moon, WiFi.RSSI());
+            } else {
+                uiWeatherScreen(weather, WiFi.RSSI());
+            }
+            break;
         default:           uiDashboard(usage, lastFetch, WiFi.RSSI(), halBatPercent()); break;
     }
 }
@@ -227,11 +238,16 @@ void loop() {
         drawCurrentView();
     } else if (aPressAt && millis() - aPressAt > comboWindowMs) {
         aPressAt = 0;
-        uiToggleRotation();
+        if (viewMode == VIEW_WEATHER) {
+            weatherShowMoon = !weatherShowMoon;   // lật Forecast <-> Moon
+        } else {
+            uiToggleRotation();                    // các mode khác: xoay màn hình
+        }
         drawCurrentView();
     } else if (bPressAt && millis() - bPressAt > comboWindowMs) {
         bPressAt = 0;
         viewMode = (ViewMode)((viewMode + 1) % VIEW_COUNT);   // xoay vòng chế độ
+        weatherShowMoon = false;                 // vào Weather luôn bắt đầu ở Forecast
         // Vào weather mode mà chưa có dữ liệu → fetch ngay để có gì đó hiển thị.
         if (viewMode == VIEW_WEATHER && !weather.ok) {
             fetchWeather(weather);
@@ -271,7 +287,7 @@ void loop() {
         millis() - lastWeatherFetch >= (unsigned long)WEATHER_REFRESH_SEC * 1000) {
         fetchWeather(weather);
         lastWeatherFetch = millis();
-        uiWeatherScreen(weather, WiFi.RSSI());
+        if (!weatherShowMoon) uiWeatherScreen(weather, WiFi.RSSI());  // không đè khi đang xem moon
     }
 
     // NTP: chỉ sync 1 lần lúc boot, sau đó sync lại khi sang ngày mới (qua 0h).

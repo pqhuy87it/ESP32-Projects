@@ -4,6 +4,7 @@
 #ifdef MANGO_UI
 #include "status.h"
 #include "weather.h"    // WeatherData — cần cho prototype uiWeatherScreen bên dưới
+#include "moon.h"       // MoonData — cho uiMoonScreen
 #endif
 
 void uiInit();
@@ -31,4 +32,6 @@ void uiBlinkTick(bool closed);
 void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full = true);
 // Màn hình thời tiết: icon lớn + nhiệt độ + mô tả + độ ẩm.
 void uiWeatherScreen(const WeatherData& wx, int rssi);
+// Màn hình pha mặt trăng: ảnh trăng + tên pha + % chiếu sáng + tuổi trăng.
+void uiMoonScreen(const MoonData& moon, int rssi);
 #endif // MANGO_UI

@@ -9,6 +9,9 @@
 #include "weather.h"
 #include "weather_icons.h"      // bộ icon lớn 50x50 (prefix ICON) — bmp2icons.py big/ ICON
 #include "weather_icons_sm.h"   // bộ icon nhỏ 28x28 (prefix ICONSM) — bmp2icons.py small/ ICONSM
+#include "moon.h"
+#include "moon_icons.h"         // bộ ảnh trăng lớn 75x75 (prefix MOON) — bmp2icons.py moon/ MOON
+#include "moon_icons_sm.h"      // bộ ảnh trăng nhỏ 40x40 (prefix MOONSM) — bmp2icons.py moon-sm/ MOONSM
 #endif
 
 // Shared helper — no display calls, safe before any #ifdef
@@ -679,6 +682,111 @@ void uiWeatherScreen(const WeatherData& wx, int rssi) {
 #endif
 
     g.setSwapBytes(false);   // trả lại mặc định cho các màn khác
+    UI_PUSH_DASH();
+}
+
+// ── Moon phase (sub-view của Weather) ────────────────────
+void uiMoonScreen(const MoonData& moon, int rssi) {
+    auto& g = lcd;
+    halClear(C_BG);
+    g.setSwapBytes(true);
+
+    // Header cam.
+    g.fillRect(0, 0, SCREEN_W, SY(18), C_HEAD);
+    g.setTextColor(C_TEXT, C_HEAD);
+    g.setTextSize(TS(1));
+    g.setCursor(SX(4), SY(5));
+    g.print("MOON PHASE");
+    drawHeaderRight(g, rssi, 0, halBatPercent(), false);
+
+#ifdef BOARD_TDISPLAY_S3
+    const int headerH = 18;
+    const int midY    = 120;                    // ranh giới 2/3 trên - 1/3 dưới
+    const int zoneW   = SCREEN_W / 3;
+
+    // ══ PHẦN TRÊN 2/3: 3 khu đều nhau ══
+    const int topMid = (headerH + midY) / 2;    // tâm dọc vùng trên (~69)
+
+    // Khu 1: ảnh trăng 75x75 căn giữa khu.
+    char fname[16];
+    snprintf(fname, sizeof(fname), "m-phase-%d", moon.imageIndex);
+    const uint16_t* img = moonByName(fname);
+    int imgX = zoneW / 2 - MOON_W / 2;
+    int imgY = topMid - MOON_H / 2;
+    if (img) {
+        g.pushImage(imgX, imgY, MOON_W, MOON_H, img);
+    } else {
+        g.drawCircle(zoneW / 2, topMid, MOON_W / 2, C_HEAD);
+    }
+
+    // Khu 2: ngày "July 31" + tên pha, căn trái, size 1 (đồng bộ khu 3).
+    static const char* const MON[] = {"January","February","March","April","May","June",
+        "July","August","September","October","November","December"};
+    int z2x = zoneW + 6;
+    char dline[20];
+    snprintf(dline, sizeof(dline), "%s %d", MON[(moon.month - 1) % 12], moon.day);
+    g.setTextSize(1);
+    g.setTextDatum(TL_DATUM);
+    g.setTextColor(C_TEXT, C_BG);
+    g.drawString(dline, z2x, topMid - 8);
+    g.setTextColor(C_CYAN, C_BG);
+    g.drawString(moon.phaseName, z2x, topMid + 8);
+
+    // Khu 3: info căn trái (Illum / Age / Rise / Set).
+    int z3x = 2 * zoneW + 6;
+    char il[16], ag[16], mr[16], ms[16];
+    snprintf(il, sizeof(il), "Illum %d%%", moon.illumPct);
+    snprintf(ag, sizeof(ag), "Age %.1fd", moon.ageDays);
+    if (moon.riseValid) snprintf(mr, sizeof(mr), "Rise %02d:%02d", moon.riseH, moon.riseM);
+    else                strlcpy(mr, "Rise --:--", sizeof(mr));
+    if (moon.setValid)  snprintf(ms, sizeof(ms), "Set  %02d:%02d", moon.setH, moon.setM);
+    else                strlcpy(ms, "Set  --:--", sizeof(ms));
+    g.setTextSize(1);
+    g.setTextDatum(TL_DATUM);
+    int r0 = topMid - 26, rh = 16;
+    g.setTextColor(C_HEAD, C_BG); g.drawString(il, z3x, r0);
+    g.setTextColor(C_TEXT, C_BG); g.drawString(ag, z3x, r0 + rh);
+    g.setTextColor(C_HEAD, C_BG); g.drawString(mr, z3x, r0 + 2 * rh);
+    g.setTextColor(C_TEXT, C_BG); g.drawString(ms, z3x, r0 + 3 * rh);
+
+    // Vạch cam ngang chia trên/dưới.
+    g.drawFastHLine(8, midY, SCREEN_W - 16, C_HEAD);
+
+    // ══ PHẦN DƯỚI 1/3: dải 7 pha (ô giữa = hiện tại, có khung cam) ══
+    const int N = 7;
+    int cellW = SCREEN_W / N;
+    int smY = midY + (SCREEN_H - midY) / 2 - MOONSM_H / 2;
+    for (int i = 0; i < N; i++) {
+        int off = i - N / 2;                    // -3..+3 quanh pha hiện tại
+        int pidx = ((moon.imageIndex + off) % 31 + 31) % 31;
+        int ccx = i * cellW + cellW / 2;
+        int sx = ccx - MOONSM_W / 2;
+
+        char sf[16];
+        snprintf(sf, sizeof(sf), "m-phase-%d", pidx);
+        const uint16_t* sim = moonsmByName(sf);
+        if (sim) g.pushImage(sx, smY, MOONSM_W, MOONSM_H, sim);
+        else     g.drawCircle(ccx, smY + MOONSM_H / 2, MOONSM_W / 2, C_HEAD_DK);
+
+        // Khung cam cho ô hiện tại (giữa).
+        if (off == 0) {
+            g.drawRect(sx - 2, smY - 2, MOONSM_W + 4, MOONSM_H + 4, C_HEAD);
+            g.drawRect(sx - 3, smY - 3, MOONSM_W + 6, MOONSM_H + 6, C_HEAD);
+        }
+    }
+#else
+    // Board nhỏ: ảnh trăng + tên pha.
+    char fname[16];
+    snprintf(fname, sizeof(fname), "m-phase-%d", moon.imageIndex);
+    const uint16_t* img = moonByName(fname);
+    if (img) g.pushImage(SX(6), SY(24), MOON_W, MOON_H, img);
+    g.setTextColor(C_CYAN, C_BG);
+    g.setTextSize(TS(1));
+    g.setTextDatum(TL_DATUM);
+    g.drawString(moon.phaseName, SX(6), SCREEN_H - SY(16));
+#endif
+
+    g.setSwapBytes(false);
     UI_PUSH_DASH();
 }
 #endif // MANGO_UI
