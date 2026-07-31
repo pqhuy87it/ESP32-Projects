@@ -43,6 +43,7 @@ static ModelStatus modelStatus = {true, true, true, true, false};
 static WeatherData weather = {};   // zero-init toàn bộ field (ok=false)
 static MoonData    moon = {};
 static bool        weatherShowMoon = false;   // false=forecast, true=moon (nút A lật khi ở Weather)
+static bool        clockShowCalendar = false; // false=đồng hồ, true=lịch (nút A lật khi ở Clock)
 static unsigned long lastWeatherFetch = 0;
 #endif
 static unsigned long lastFetch = 0;
@@ -98,7 +99,10 @@ static ViewMode viewMode = VIEW_DASH;
 // Vẽ lại màn hình ứng với chế độ hiện tại.
 static void drawCurrentView() {
     switch (viewMode) {
-        case VIEW_CLOCK:   uiClockScreen(lastFetch, WiFi.RSSI()); break;
+        case VIEW_CLOCK:
+            if (clockShowCalendar) uiCalendarScreen(WiFi.RSSI());
+            else                   uiClockScreen(lastFetch, WiFi.RSSI());
+            break;
         case VIEW_WEATHER:
             if (weatherShowMoon) {
                 computeMoon((long)time(nullptr), OWM_TZ_OFFSET_SEC, moon);
@@ -240,14 +244,17 @@ void loop() {
         aPressAt = 0;
         if (viewMode == VIEW_WEATHER) {
             weatherShowMoon = !weatherShowMoon;   // lật Forecast <-> Moon
+        } else if (viewMode == VIEW_CLOCK) {
+            clockShowCalendar = !clockShowCalendar;  // lật Đồng hồ <-> Lịch
         } else {
-            uiToggleRotation();                    // các mode khác: xoay màn hình
+            uiToggleRotation();                    // Dashboard: xoay màn hình
         }
         drawCurrentView();
     } else if (bPressAt && millis() - bPressAt > comboWindowMs) {
         bPressAt = 0;
         viewMode = (ViewMode)((viewMode + 1) % VIEW_COUNT);   // xoay vòng chế độ
         weatherShowMoon = false;                 // vào Weather luôn bắt đầu ở Forecast
+        clockShowCalendar = false;               // vào Clock luôn bắt đầu ở Đồng hồ
         // Vào weather mode mà chưa có dữ liệu → fetch ngay để có gì đó hiển thị.
         if (viewMode == VIEW_WEATHER && !weather.ok) {
             fetchWeather(weather);
@@ -319,8 +326,8 @@ void loop() {
     static unsigned long lastRedraw = 0;
 #ifdef MANGO_UI
     if (viewMode == VIEW_CLOCK) {
-        // Clock: cập nhật mỗi giây để giây chạy mượt. full=false = vẽ đè, không nháy.
-        if (millis() - lastRedraw > 1000) {
+        // Chỉ tick khi đang xem đồng hồ; xem lịch thì không cần vẽ lại mỗi giây.
+        if (!clockShowCalendar && millis() - lastRedraw > 1000) {
             uiClockScreen(lastFetch, WiFi.RSSI(), false);
             lastRedraw = millis();
         }

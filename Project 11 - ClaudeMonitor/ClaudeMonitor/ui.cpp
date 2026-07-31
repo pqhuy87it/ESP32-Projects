@@ -55,6 +55,7 @@ static void fmtCountdown(uint32_t epoch, char* out, size_t len) {
 #define C_ACCENT  0xEB87
 #define C_CYAN    0xF50A   // light warm orange
 #define C_HEAD_DK 0xA244   // dimmed Claude orange — empty wifi bars, hairline dividers
+#define C_CAL_RED 0xC945   // đỏ hộp tháng trên calendar (giống icon lịch iOS)
 
 // The base layout is designed for the ~240x135 LCD. Larger panels scale the
 // coordinates and font up so text stays readable and the layout fills the screen.
@@ -516,6 +517,131 @@ void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full) {
     g.drawFastVLine(SCREEN_W / 2, rowY - 1, SY(12), C_HEAD);
     g.setTextColor(C_HEAD, C_BG);
     g.drawString(wstr, cxR, rowY + SY(4));
+    g.setTextDatum(TL_DATUM);
+#endif
+
+    UI_PUSH_DASH();
+}
+
+// ── Calendar mode (sub-view của Clock) ───────────────────
+// Trái 2/3: lưới ngày trong tháng (ngày hiện tại bọc ô cam bo góc).
+// Phải 1/3: hộp tháng (nền đỏ) + hộp ngày (nền trắng), ngăn bằng vạch cam.
+void uiCalendarScreen(int rssi) {
+    auto& g = lcd;
+    halClear(C_BG);
+
+    // Header cam.
+    g.fillRect(0, 0, SCREEN_W, SY(18), C_HEAD);
+    g.setTextColor(C_TEXT, C_HEAD);
+    g.setTextSize(TS(1));
+    g.setCursor(SX(4), SY(5));
+    g.print("CALENDAR");
+    drawHeaderRight(g, rssi, 0, halBatPercent(), false);
+
+    struct tm t;
+    if (!getLocalTime(&t, 100)) {
+        g.setTextColor(C_DIM, C_BG);
+        g.setTextSize(TS(2));
+        g.setTextDatum(MC_DATUM);
+        g.drawString("SYNCING TIME...", SCREEN_W / 2, SCREEN_H / 2);
+        g.setTextDatum(TL_DATUM);
+        UI_PUSH_DASH();
+        return;
+    }
+
+    int curDay = t.tm_mday;
+    int month  = t.tm_mon;          // 0..11
+    int year   = t.tm_year + 1900;
+
+    // Thứ của ngày 1 trong tháng (0=Sun) + số ngày trong tháng.
+    static const int mdays[] = {31,28,31,30,31,30,31,31,30,31,30,31};
+    int daysInMonth = mdays[month];
+    bool leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
+    if (month == 1 && leap) daysInMonth = 29;
+    // Zeller/định lý: tính thứ của ngày 1. Dùng công thức từ tm hiện tại lùi về.
+    int firstWday = (t.tm_wday - ((curDay - 1) % 7) + 14) % 7;   // 0=Sun
+
+#ifdef BOARD_TDISPLAY_S3
+    const int headerH = 18;
+    const int splitX  = 214;                    // ranh giới trái 2/3 - phải 1/3
+
+    // Vạch cam dọc ngăn 2 phần.
+    g.drawFastVLine(splitX, headerH + 2, SCREEN_H - headerH - 4, C_HEAD);
+
+    // ══ TRÁI: lưới lịch ══
+    static const char* const WD[] = {"Su","Mo","Tu","We","Th","Fr","Sa"};
+    int gridX = 6, gridY = headerH + 6;
+    int colW = (splitX - gridX - 4) / 7;        // ~29px mỗi cột
+    int rowH = 20;
+
+    // Hàng tiêu đề thứ.
+    g.setTextSize(1);
+    g.setTextDatum(MC_DATUM);
+    for (int c = 0; c < 7; c++) {
+        g.setTextColor((c == 0 || c == 6) ? C_HEAD : C_DIM, C_BG);
+        g.drawString(WD[c], gridX + c * colW + colW / 2, gridY + 6);
+    }
+
+    // Các ngày.
+    for (int d = 1; d <= daysInMonth; d++) {
+        int cellIndex = firstWday + d - 1;
+        int row = cellIndex / 7;
+        int col = cellIndex % 7;
+        int cxp = gridX + col * colW + colW / 2;
+        int cyp = gridY + 18 + row * rowH + rowH / 2;
+
+        char ds[3]; snprintf(ds, sizeof(ds), "%d", d);
+        if (d == curDay) {
+            // Ô cam bo góc quanh ngày hiện tại, chữ trắng.
+            int bw = colW - 4, bh = rowH - 2;
+            g.fillRoundRect(cxp - bw / 2, cyp - bh / 2, bw, bh, 4, C_HEAD);
+            g.setTextColor(C_TEXT, C_HEAD);
+        } else {
+            g.setTextColor(C_TEXT, C_BG);
+        }
+        g.drawString(ds, cxp, cyp);
+    }
+
+    // ══ PHẢI: hộp tháng (đỏ) + hộp ngày (trắng) ══
+    static const char* const MON_UP[] = {"JAN","FEB","MAR","APR","MAY","JUN",
+        "JUL","AUG","SEP","OCT","NOV","DEC"};
+    int rx = splitX + 10;
+    int rw = SCREEN_W - rx - 8;                  // bề rộng vùng phải
+    int rcx = rx + rw / 2;
+
+    // Hộp tháng: nền đỏ, chữ trắng.
+    int mBoxY = headerH + 10, mBoxH = 34;
+    g.fillRoundRect(rx, mBoxY, rw, mBoxH, 5, C_CAL_RED);
+    g.setTextColor(C_TEXT, C_CAL_RED);
+    g.setTextSize(2);
+    g.setTextDatum(MC_DATUM);
+    g.drawString(MON_UP[month], rcx, mBoxY + mBoxH / 2);
+
+    // Vạch cam ngăn tháng/ngày.
+    int sepY = mBoxY + mBoxH + 8;
+    g.drawFastHLine(rx, sepY, rw, C_HEAD);
+
+    // Hộp ngày: nền trắng, chữ đen, cỡ lớn.
+    int dBoxY = sepY + 8, dBoxH = SCREEN_H - dBoxY - 8;
+    g.fillRoundRect(rx, dBoxY, rw, dBoxH, 6, C_TEXT);
+    g.setTextColor(C_BG, C_TEXT);
+    g.setTextSize(5);
+    g.setTextDatum(MC_DATUM);
+    char dd[3]; snprintf(dd, sizeof(dd), "%d", curDay);
+    g.drawString(dd, rcx, dBoxY + dBoxH / 2);
+    g.setTextDatum(TL_DATUM);
+#else
+    // Board nhỏ: chỉ hộp tháng + ngày.
+    static const char* const MON_UP[] = {"JAN","FEB","MAR","APR","MAY","JUN",
+        "JUL","AUG","SEP","OCT","NOV","DEC"};
+    g.setTextColor(C_HEAD, C_BG);
+    g.setTextSize(TS(2));
+    g.setTextDatum(MC_DATUM);
+    g.drawString(MON_UP[month], SCREEN_W / 2, SY(50));
+    char dd[3]; snprintf(dd, sizeof(dd), "%d", curDay);
+    g.setTextColor(C_TEXT, C_BG);
+    g.setTextSize(TS(4));
+    g.drawString(dd, SCREEN_W / 2, SY(90));
     g.setTextDatum(TL_DATUM);
 #endif
 

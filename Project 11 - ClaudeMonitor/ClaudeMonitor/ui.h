@@ -30,6 +30,8 @@ void uiBlinkTick(bool closed);
 // full=true: xóa & vẽ lại toàn bộ (khi mới vào mode / sau khi lật màn);
 // full=false: chỉ vẽ đè (tick mỗi giây) — text màu-nền tự xóa nền cũ, không nháy.
 void uiClockScreen(unsigned long lastFetchMs, int rssi, bool full = true);
+// Màn lịch (sub-view của Clock): lưới ngày trong tháng + hộp tháng/ngày hiện tại.
+void uiCalendarScreen(int rssi);
 // Màn hình thời tiết: icon lớn + nhiệt độ + mô tả + độ ẩm.
 void uiWeatherScreen(const WeatherData& wx, int rssi);
 // Màn hình pha mặt trăng: ảnh trăng + tên pha + % chiếu sáng + tuổi trăng.
