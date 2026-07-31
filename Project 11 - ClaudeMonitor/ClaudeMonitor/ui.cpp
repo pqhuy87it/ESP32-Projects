@@ -719,35 +719,53 @@ void uiMoonScreen(const MoonData& moon, int rssi) {
         g.drawCircle(zoneW / 2, topMid, MOON_W / 2, C_HEAD);
     }
 
-    // Khu 2: ngày "July 31" + tên pha, căn trái, size 1 (đồng bộ khu 3).
+    // Khu 2: ngày size 3 (giả bold), tự rút gọn tháng nếu tràn; tên pha size 1.
     static const char* const MON[] = {"January","February","March","April","May","June",
         "July","August","September","October","November","December"};
+    static const char* const MON_ABBR[] = {"Jan","Feb","Mar","Apr","May","Jun",
+        "Jul","Aug","Sep","Oct","Nov","Dec"};
     int z2x = zoneW + 6;
+    int z2max = zoneW - 12;                      // bề rộng tối đa khu 2 (chừa lề)
     char dline[20];
     snprintf(dline, sizeof(dline), "%s %d", MON[(moon.month - 1) % 12], moon.day);
-    g.setTextSize(1);
+    g.setTextSize(2);
+    if (g.textWidth(dline) > z2max)              // tràn → dùng tháng viết tắt
+        snprintf(dline, sizeof(dline), "%s %d", MON_ABBR[(moon.month - 1) % 12], moon.day);
+
+    // Vẽ ngày size 2, giả bold bằng cách vẽ đè lệch 1px.
     g.setTextDatum(TL_DATUM);
     g.setTextColor(C_TEXT, C_BG);
-    g.drawString(dline, z2x, topMid - 8);
-    g.setTextColor(C_CYAN, C_BG);
-    g.drawString(moon.phaseName, z2x, topMid + 8);
+    int dY = topMid - 12;
+    g.drawString(dline, z2x, dY);
+    g.drawString(dline, z2x + 1, dY);            // lệch 1px → nét đậm hơn
 
-    // Khu 3: info căn trái (Illum / Age / Rise / Set).
+    // Tên pha size 1.
+    g.setTextSize(1);
+    g.setTextColor(C_CYAN, C_BG);
+    g.drawString(moon.phaseName, z2x, dY + 22);
+
+    // Khu 3: nhãn (trái) + giá trị (thẳng cột). Illum/Age trắng, Rise/Set cam.
     int z3x = 2 * zoneW + 6;
-    char il[16], ag[16], mr[16], ms[16];
-    snprintf(il, sizeof(il), "Illum %d%%", moon.illumPct);
-    snprintf(ag, sizeof(ag), "Age %.1fd", moon.ageDays);
-    if (moon.riseValid) snprintf(mr, sizeof(mr), "Rise %02d:%02d", moon.riseH, moon.riseM);
-    else                strlcpy(mr, "Rise --:--", sizeof(mr));
-    if (moon.setValid)  snprintf(ms, sizeof(ms), "Set  %02d:%02d", moon.setH, moon.setM);
-    else                strlcpy(ms, "Set  --:--", sizeof(ms));
+    int valX = z3x + 46;                          // cột giá trị căn thẳng hàng
+    char ilV[10], agV[10], mrV[10], msV[10];
+    snprintf(ilV, sizeof(ilV), "%d%%", moon.illumPct);
+    snprintf(agV, sizeof(agV), "%.1fd", moon.ageDays);
+    if (moon.riseValid) snprintf(mrV, sizeof(mrV), "%02d:%02d", moon.riseH, moon.riseM);
+    else                strlcpy(mrV, "--:--", sizeof(mrV));
+    if (moon.setValid)  snprintf(msV, sizeof(msV), "%02d:%02d", moon.setH, moon.setM);
+    else                strlcpy(msV, "--:--", sizeof(msV));
+
     g.setTextSize(1);
     g.setTextDatum(TL_DATUM);
     int r0 = topMid - 26, rh = 16;
-    g.setTextColor(C_HEAD, C_BG); g.drawString(il, z3x, r0);
-    g.setTextColor(C_TEXT, C_BG); g.drawString(ag, z3x, r0 + rh);
-    g.setTextColor(C_HEAD, C_BG); g.drawString(mr, z3x, r0 + 2 * rh);
-    g.setTextColor(C_TEXT, C_BG); g.drawString(ms, z3x, r0 + 3 * rh);
+    // Illum + Age: trắng.
+    g.setTextColor(C_TEXT, C_BG);
+    g.drawString("Illum", z3x, r0);        g.drawString(ilV, valX, r0);
+    g.drawString("Age",   z3x, r0 + rh);   g.drawString(agV, valX, r0 + rh);
+    // Rise + Set: cam.
+    g.setTextColor(C_HEAD, C_BG);
+    g.drawString("Rise",  z3x, r0 + 2 * rh); g.drawString(mrV, valX, r0 + 2 * rh);
+    g.drawString("Set",   z3x, r0 + 3 * rh); g.drawString(msV, valX, r0 + 3 * rh);
 
     // Vạch cam ngang chia trên/dưới.
     g.drawFastHLine(8, midY, SCREEN_W - 16, C_HEAD);
