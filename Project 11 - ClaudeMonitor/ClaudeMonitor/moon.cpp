@@ -7,7 +7,9 @@
 
 // ── Pha trăng ───────────────────────────────────────────
 static const double SYNODIC = 29.53058867;         // chu kỳ giao hội
-static const double NEW_MOON_REF = 947182440.0;     // 2000-01-06 18:14 UTC
+// Mốc trăng non hiệu chỉnh theo rằm 2026-07-29 (idx 16 = full trong bộ ảnh).
+// Dùng mốc gần hiện tại để giảm sai số tích lũy.
+static const double NEW_MOON_REF = 1784034839.0;   // ~2026-07-14 (new moon)
 
 static const char* PHASE_NAMES[] = {
     "New Moon", "Waxing Crescent", "First Quarter", "Waxing Gibbous",
@@ -113,8 +115,11 @@ void computeMoon(long epoch, int tzOffsetSec, MoonData& out) {
 
     out.ageDays = (float)(frac * SYNODIC);
 
-    int idx = (int)round(frac * 30.0);
-    if (idx > 30) idx = 30; if (idx < 0) idx = 0;
+    // Ảnh: 32 tấm (m-phase-0..31). Bộ ảnh: idx 0=new, 16=full, 31=new kế tiếp.
+    //   frac=0.5 (rằm) × 32 = 16 = ảnh full. Chia 32 khớp đúng bộ ảnh của bạn.
+    int idx = (int)round(frac * 32.0);
+    if (idx > 31) idx = 31;       // idx 32 (frac~1.0) vòng về new — kẹp về 31
+    if (idx < 0) idx = 0;
     out.imageIndex = idx;
 
     double illum = (1.0 - cos(frac * 2.0 * M_PI)) / 2.0;

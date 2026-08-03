@@ -902,7 +902,7 @@ void uiMoonScreen(const MoonData& moon, int rssi) {
     int smY = midY + (SCREEN_H - midY) / 2 - MOONSM_H / 2;
     for (int i = 0; i < N; i++) {
         int off = i - N / 2;                    // -3..+3 quanh pha hiện tại
-        int pidx = ((moon.imageIndex + off) % 31 + 31) % 31;
+        int pidx = ((moon.imageIndex + off) % 32 + 32) % 32;   // 32 ảnh (0..31)
         int ccx = i * cellW + cellW / 2;
         int sx = ccx - MOONSM_W / 2;
 
