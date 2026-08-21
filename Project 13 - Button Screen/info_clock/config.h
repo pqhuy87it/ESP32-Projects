@@ -61,6 +61,9 @@
 // Mua/dong/suong mu luon duoc uu tien hon vi quan trong hon.
 // Dat 0 de tat hoan toan, khi do icon gio chi hien khi API bao "Squall".
 //   5 m/s = gio nhe   |  8 m/s = gio kha manh  |  11 m/s = gio manh
+// LUU Y: day la hang so THUC. Dung dat no vao `#if` — bo tien xu ly chi tinh
+// duoc bieu thuc so nguyen. Trong code hay dung `if` thuong, trinh bien dich
+// se tu loai bo nhanh chet khi gia tri bang 0.
 #define WIND_ICON_THRESHOLD_MS   8.0f
 
 // ---------- Man hinh "Analog" ----------

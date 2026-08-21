@@ -16,11 +16,17 @@
 //   | (o) 21' |  27 NOV              |  <- khung 3: thoi tiet | ngay
 //   +--------------------------------+
 //
-// MEO TAO CAM GIAC LCD THAT:
-// Man LCD vat ly luon hien mo cac doan CHUA bat. Ta tai tao bang cach ve
-// "88:88" mau lcdOff truoc, roi ve gio that mau lcdOn de len — dung che do
-// chu nen trong suot (setTextColor mot tham so). Vi moi chu so deu la tap
-// con cac doan cua so 8 nen ket qua khop chinh xac.
+// ----------------------------------------------------------------------------
+// HIEU UNG "DOAN MO" — CHI AP DUNG O HAI CHO
+//
+// Man LCD vat ly luon hien mo cac doan chua bat. O day ta chi tai tao hieu
+// ung do tai nhung noi co Y NGHIA la mot lua chon dang bat/tat:
+//
+//   Khung 1 — bay chu cai thu : sau thu con lai mau lcdOff, hom nay lcdOn
+//   Khung 2 — AM / PM         : in san ca hai, chi mot cai duoc "bat"
+//
+// Chu so gio (khung 2) va toan bo khung 3 KHONG dung hieu ung nay — chung la
+// gia tri doc duoc chu khong phai lua chon, nen ve thang mot lop cho ro.
 // ============================================================================
 
 static constexpr int PANEL_X = 8;
@@ -121,18 +127,11 @@ static void drawTimePanel(const AppData& d) {
   if (d.show12h) snprintf(buf, sizeof buf, "%2d:%02d", d.hourShown, d.minute);
   else           snprintf(buf, sizeof buf, "%02d:%02d", d.hourShown, d.minute);
 
+  // Chu so gio KHONG co lop doan mo — chi ve gio that.
   tft.setTextFont(7);                 // font 7 doan, 48px
   tft.setTextDatum(MC_DATUM);
-
-  // Lop 1: cac doan chua bat, mau mo — setTextColor mot tham so = nen trong suot
-  tft.setTextColor(P.lcdOff);
-  tft.drawString("88:88", TIME_CX, TIME_CY);
-
-  // Lop 2: gio that de len
-  tft.setTextColor(P.lcdOn);
+  tft.setTextColor(P.lcdOn, P.lcdBg);
   tft.drawString(buf, TIME_CX, TIME_CY);
-
-  tft.setTextColor(P.lcdOn, P.lcdBg);   // tra lai che do nen dac
 }
 
 static void drawWeatherCell(const AppData& d) {
@@ -173,12 +172,10 @@ static void drawDateCell(const AppData& d) {
   const int total = wDay + 8 + wMon;
   int x = DATE_CX - total / 2;
 
-  // Chu so ngay: font 7 doan, co lop doan mo phia sau
+  // Chu so ngay: font 7 doan, KHONG co lop doan mo
   tft.setTextFont(7);
   tft.setTextDatum(ML_DATUM);
-  tft.setTextColor(P.lcdOff);
-  tft.drawString("88", x, P3_CY);
-  tft.setTextColor(P.lcdOn);
+  tft.setTextColor(P.lcdOn, P.lcdBg);
   tft.drawString(dayStr, x, P3_CY);
   x += wDay + 8;
 

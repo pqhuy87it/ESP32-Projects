@@ -40,13 +40,16 @@ static WxIcon mapOwmIcon(const char* main, const char* code, float windMs) {
 
   const WxIcon base = iconFromCode(code);
 
-#if WIND_ICON_THRESHOLD_MS > 0
-  const bool calmSky = (base == WxIcon::Clear || base == WxIcon::NightClear ||
-                        base == WxIcon::PartlyCloudy || base == WxIcon::Cloudy);
-  if (calmSky && windMs >= WIND_ICON_THRESHOLD_MS) return WxIcon::Wind;
-#else
-  (void)windMs;
-#endif
+  // Dung `if` THUONG chu khong phai `#if`: bo tien xu ly chi tinh duoc bieu
+  // thuc so nguyen, gap hang so thuc nhu 8.0f la bao loi
+  // "floating constant in preprocessor expression".
+  // Dat nguong = 0 thi dieu kien thanh hang so sai, trinh bien dich tu loai bo
+  // ca nhanh nay — khong ton mot byte flash nao.
+  if (WIND_ICON_THRESHOLD_MS > 0.0f) {
+    const bool calmSky = (base == WxIcon::Clear || base == WxIcon::NightClear ||
+                          base == WxIcon::PartlyCloudy || base == WxIcon::Cloudy);
+    if (calmSky && windMs >= WIND_ICON_THRESHOLD_MS) return WxIcon::Wind;
+  }
 
   return base;
 }
